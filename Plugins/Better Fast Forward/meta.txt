@@ -1,0 +1,13 @@
+﻿Name      = v19.1 Better Fast-forward Mode
+Version   = 1.0
+Website   = https://www.pokecommunity.com/showthread.php?t=401043
+Credits   = Marin
+#=====================================================================
+# Change log
+#=====================================================================
+#
+# 1.0.0:
+# Added Fast-forward mode by presssing the F7 key.
+#
+#
+#=====================================================================
