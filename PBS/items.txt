@@ -827,3 +827,4 @@
 806,CARDKEY,Card Key,Card Keys,8,0,"This key is for an Silph Co employies only.",0,0,6,
 807,GOLDTEETH,Gold Teeth,Gold Theeths,8,0,"These teeth belong to someone.",0,0,6,
 1000,TEA,Tea,Tea,8,0,A hot drink which is good for quenching thirst.,0,0,6,
+1001,SECRETKEY,Secret Key,Secret Keys,8,0,The key to CINNABAR ISLAND GYM's front door. It is colored red and decorated.,0,0,6,
