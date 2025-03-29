@@ -3,10 +3,11 @@
 # bottom.
 module RPG
   class Weather
-    attr_reader :type
-    attr_reader :max
-    attr_reader :ox
-    attr_reader :oy
+    attr_reader   :type
+    attr_reader   :max
+    attr_reader   :ox, :oy
+    attr_accessor :ox_offset, :oy_offset
+
     MAX_SPRITES              = 60
     FADE_OLD_TILES_START     = 0
     FADE_OLD_TILES_END       = 1
@@ -33,6 +34,8 @@ module RPG
       @max                  = 0
       @ox                   = 0
       @oy                   = 0
+      @ox_offset            = 0
+      @oy_offset            = 0
       @tiles_wide           = 0
       @tiles_tall           = 0
       @tile_x               = 0.0
@@ -49,14 +52,14 @@ module RPG
     end
 
     def dispose
-      @sprites.each { |sprite| sprite.dispose if sprite }
-      @new_sprites.each { |sprite| sprite.dispose if sprite }
-      @tiles.each { |sprite| sprite.dispose if sprite }
+      @sprites.each { |sprite| sprite&.dispose }
+      @new_sprites.each { |sprite| sprite&.dispose }
+      @tiles.each { |sprite| sprite&.dispose }
       @viewport.dispose
       @weatherTypes.each_value do |weather|
         next if !weather
-        weather[1].each { |bitmap| bitmap.dispose if bitmap }
-        weather[2].each { |bitmap| bitmap.dispose if bitmap }
+        weather[1].each { |bitmap| bitmap&.dispose }
+        weather[2].each { |bitmap| bitmap&.dispose }
       end
     end
 
@@ -82,7 +85,7 @@ module RPG
           @time_shift += 1   # No previous tiles to fade out first
         end
         @fading = true
-        @new_sprites.each { |sprite| sprite.dispose if sprite }
+        @new_sprites.each { |sprite| sprite&.dispose }
         @new_sprites.clear
         ensureSprites
         @new_sprites.each_with_index { |sprite, i| set_sprite_bitmap(sprite, i, @target_type) }
@@ -119,7 +122,7 @@ module RPG
       return if @max == value
       @max = value.clamp(0, MAX_SPRITES)
       ensureSprites
-      for i in 0...MAX_SPRITES
+      MAX_SPRITES.times do |i|
         @sprites[i].visible = (i < @max) if @sprites[i]
       end
     end
@@ -127,17 +130,17 @@ module RPG
     def ox=(value)
       return if value == @ox
       @ox = value
-      @sprites.each { |sprite| sprite.ox = @ox if sprite }
-      @new_sprites.each { |sprite| sprite.ox = @ox if sprite }
-      @tiles.each { |sprite| sprite.ox = @ox if sprite }
+      @sprites.each { |sprite| sprite.ox = @ox + @ox_offset if sprite }
+      @new_sprites.each { |sprite| sprite.ox = @ox + @ox_offset if sprite }
+      @tiles.each { |sprite| sprite.ox = @ox + @ox_offset if sprite }
     end
 
     def oy=(value)
       return if value == @oy
       @oy = value
-      @sprites.each { |sprite| sprite.oy = @oy if sprite }
-      @new_sprites.each { |sprite| sprite.oy = @oy if sprite }
-      @tiles.each { |sprite| sprite.oy = @oy if sprite }
+      @sprites.each { |sprite| sprite.oy = @oy + @oy_offset if sprite }
+      @new_sprites.each { |sprite| sprite.oy = @oy + @oy_offset if sprite }
+      @tiles.each { |sprite| sprite.oy = @oy + @oy_offset if sprite }
     end
 
     def get_weather_tone(weather_type, maximum)
@@ -148,7 +151,7 @@ module RPG
       weather_data = GameData::Weather.get(new_type)
       bitmap_names = weather_data.graphics
       @weatherTypes[new_type] = [weather_data, [], []]
-      for i in 0...2   # 0=particles, 1=tiles
+      2.times do |i|   # 0=particles, 1=tiles
         next if !bitmap_names[i]
         bitmap_names[i].each do |name|
           bitmap = RPG::Cache.load_bitmap("Graphics/Weather/", name)
@@ -159,12 +162,13 @@ module RPG
 
     def ensureSprites
       if @sprites.length < MAX_SPRITES && @weatherTypes[@type] && @weatherTypes[@type][1].length > 0
-        for i in 0...MAX_SPRITES
+        MAX_SPRITES.times do |i|
           if !@sprites[i]
             sprite = Sprite.new(@origViewport)
+            sprite.float   = true
             sprite.z       = 1000
-            sprite.ox      = @ox
-            sprite.oy      = @oy
+            sprite.ox      = @ox + @ox_offset
+            sprite.oy      = @oy + @oy_offset
             sprite.opacity = 0
             @sprites[i] = sprite
           end
@@ -174,12 +178,13 @@ module RPG
       end
       if @fading && @new_sprites.length < MAX_SPRITES && @weatherTypes[@target_type] &&
          @weatherTypes[@target_type][1].length > 0
-        for i in 0...MAX_SPRITES
+        MAX_SPRITES.times do |i|
           if !@new_sprites[i]
             sprite = Sprite.new(@origViewport)
+            sprite.float   = true
             sprite.z       = 1000
-            sprite.ox      = @ox
-            sprite.oy      = @oy
+            sprite.ox      = @ox + @ox_offset
+            sprite.oy      = @oy + @oy_offset
             sprite.opacity = 0
             @new_sprites[i] = sprite
           end
@@ -191,12 +196,13 @@ module RPG
 
     def ensureTiles
       return if @tiles.length >= @tiles_wide * @tiles_tall
-      for i in 0...(@tiles_wide * @tiles_tall)
+      (@tiles_wide * @tiles_tall).times do |i|
         if !@tiles[i]
           sprite = Sprite.new(@origViewport)
+          sprite.float   = true
           sprite.z       = 1000
-          sprite.ox      = @ox
-          sprite.oy      = @oy
+          sprite.ox      = @ox + @ox_offset
+          sprite.oy      = @oy + @oy_offset
           sprite.opacity = 0
           @tiles[i] = sprite
         end
@@ -213,7 +219,7 @@ module RPG
       end
       if @weatherTypes[weather_type][0].category == :Rain
         last_index = weatherBitmaps.length - 1   # Last sprite is a splash
-        if (index % 2) == 0
+        if index.even?
           sprite.bitmap = weatherBitmaps[index % last_index]
         else
           sprite.bitmap = weatherBitmaps[last_index]
@@ -243,25 +249,25 @@ module RPG
         lifetimes[index] = 0
         return
       end
-      if @weatherTypes[weather_type][0].category == :Rain && (index % 2) != 0   # Splash
-        sprite.x = @ox - sprite.bitmap.width + rand(Graphics.width + sprite.bitmap.width * 2)
-        sprite.y = @oy - sprite.bitmap.height + rand(Graphics.height + sprite.bitmap.height * 2)
-        lifetimes[index] = (30 + rand(20)) * 0.01   # 0.3-0.5 seconds
+      if @weatherTypes[weather_type][0].category == :Rain && index.odd?   # Splash
+        sprite.x = @ox + @ox_offset - sprite.bitmap.width + rand(Graphics.width + (sprite.bitmap.width * 2))
+        sprite.y = @oy + @oy_offset - sprite.bitmap.height + rand(Graphics.height + (sprite.bitmap.height * 2))
+        lifetimes[index] = (rand(30...50)) * 0.01   # 0.3-0.5 seconds
       else
         x_speed = @weatherTypes[weather_type][0].particle_delta_x
         y_speed = @weatherTypes[weather_type][0].particle_delta_y
         gradient = x_speed.to_f / y_speed
         if gradient.abs >= 1
           # Position sprite to the right of the screen
-          sprite.x = @ox + Graphics.width + rand(Graphics.width)
-          sprite.y = @oy + Graphics.height - rand(Graphics.height + sprite.bitmap.height - Graphics.width / gradient)
-          distance_to_cover = sprite.x - @ox - Graphics.width / 2 + sprite.bitmap.width + rand(Graphics.width * 8 / 5)
+          sprite.x = @ox + @ox_offset + Graphics.width + rand(Graphics.width)
+          sprite.y = @oy + @oy_offset + Graphics.height - rand(Graphics.height + sprite.bitmap.height - (Graphics.width / gradient))
+          distance_to_cover = sprite.x - @ox - @ox_offset - (Graphics.width / 2) + sprite.bitmap.width + rand(Graphics.width * 8 / 5)
           lifetimes[index] = (distance_to_cover.to_f / x_speed).abs
         else
           # Position sprite to the top of the screen
-          sprite.x = @ox - sprite.bitmap.width + rand(Graphics.width + sprite.bitmap.width - gradient * Graphics.height)
-          sprite.y = @oy - sprite.bitmap.height - rand(Graphics.height)
-          distance_to_cover = @oy - sprite.y + Graphics.height / 2 + rand(Graphics.height * 8 / 5)
+          sprite.x = @ox + @ox_offset - sprite.bitmap.width + rand(Graphics.width + sprite.bitmap.width - (gradient * Graphics.height))
+          sprite.y = @oy + @oy_offset - sprite.bitmap.height - rand(Graphics.height)
+          distance_to_cover = @oy + @oy_offset - sprite.y + (Graphics.height / 2) + rand(Graphics.height * 8 / 5)
           lifetimes[index] = (distance_to_cover.to_f / y_speed).abs
         end
       end
@@ -270,7 +276,7 @@ module RPG
 
     def update_sprite_position(sprite, index, is_new_sprite = false)
       return if !sprite || !sprite.bitmap || !sprite.visible
-      delta_t = Graphics.delta_s
+      delta_t = Graphics.delta
       lifetimes = (is_new_sprite) ? @new_sprite_lifetimes : @sprite_lifetimes
       if lifetimes[index] >= 0
         lifetimes[index] -= delta_t
@@ -282,7 +288,7 @@ module RPG
       # Determine which weather type this sprite is representing
       weather_type = (is_new_sprite) ? @target_type : @type
       # Update visibility/position/opacity of sprite
-      if @weatherTypes[weather_type][0].category == :Rain && (index % 2) != 0   # Splash
+      if @weatherTypes[weather_type][0].category == :Rain && index.odd?   # Splash
         sprite.opacity = (lifetimes[index] < 0.2) ? 255 : 0   # 0.2 seconds
       else
         dist_x = @weatherTypes[weather_type][0].particle_delta_x * delta_t
@@ -290,13 +296,17 @@ module RPG
         sprite.x += dist_x
         sprite.y += dist_y
         if weather_type == :Snow
-          sprite.x += dist_x * (sprite.y - @oy) / (Graphics.height * 3)   # Faster when further down screen
+          sprite.x += dist_x * (sprite.y - @oy - @oy_offset) / (Graphics.height * 3)   # Faster when further down screen
           sprite.x += [2, 1, 0, -1][rand(4)] * dist_x / 8   # Random movement
           sprite.y += [2, 1, 1, 0, 0, -1][index % 6] * dist_y / 10   # Variety
         end
+        sprite.x -= Graphics.width if sprite.x - @ox - @ox_offset > Graphics.width
+        sprite.x += Graphics.width if sprite.x - @ox - @ox_offset < -sprite.width
+        sprite.y -= Graphics.height if sprite.y - @oy - @oy_offset > Graphics.height
+        sprite.y += Graphics.height if sprite.y - @oy - @oy_offset < -sprite.height
         sprite.opacity += @weatherTypes[weather_type][0].particle_delta_opacity * delta_t
-        x = sprite.x - @ox
-        y = sprite.y - @oy
+        x = sprite.x - @ox - @ox_offset
+        y = sprite.y - @oy - @oy_offset
         # Check if sprite is off-screen; if so, reset it
         if sprite.opacity < 64 || x < -sprite.bitmap.width || y > Graphics.height
           reset_sprite_position(sprite, index, is_new_sprite)
@@ -305,34 +315,39 @@ module RPG
     end
 
     def recalculate_tile_positions
-      delta_t = Graphics.delta_s
+      delta_t = Graphics.delta
       weather_type = @type
       if @fading && @fade_time >= [FADE_OLD_TONE_END - @time_shift, 0].max
         weather_type = @target_type
       end
       @tile_x += @weatherTypes[weather_type][0].tile_delta_x * delta_t
       @tile_y += @weatherTypes[weather_type][0].tile_delta_y * delta_t
-      if @tile_x < -@tiles_wide * @weatherTypes[weather_type][2][0].width
-        @tile_x += @tiles_wide * @weatherTypes[weather_type][2][0].width
+      while @tile_x < @ox + @ox_offset - @weatherTypes[weather_type][2][0].width
+        @tile_x += @weatherTypes[weather_type][2][0].width
       end
-      if @tile_y > @tiles_tall * @weatherTypes[weather_type][2][0].height
-        @tile_y -= @tiles_tall * @weatherTypes[weather_type][2][0].height
+      while @tile_x > @ox + @ox_offset
+        @tile_x -= @weatherTypes[weather_type][2][0].width
+      end
+      while @tile_y < @oy + @oy_offset - @weatherTypes[weather_type][2][0].height
+        @tile_y += @weatherTypes[weather_type][2][0].height
+      end
+      while @tile_y > @oy + @oy_offset
+        @tile_y -= @weatherTypes[weather_type][2][0].height
       end
     end
 
     def update_tile_position(sprite, index)
       return if !sprite || !sprite.bitmap || !sprite.visible
-      sprite.x = (@ox + @tile_x + (index % @tiles_wide) * sprite.bitmap.width).round
-      sprite.y = (@oy + @tile_y + (index / @tiles_wide) * sprite.bitmap.height).round
-      sprite.x += @tiles_wide * sprite.bitmap.width if sprite.x - @ox < -sprite.bitmap.width
-      sprite.y -= @tiles_tall * sprite.bitmap.height if sprite.y - @oy > Graphics.height
+      sprite.x = @tile_x.round + ((index % @tiles_wide) * sprite.bitmap.width)
+      sprite.y = @tile_y.round + ((index / @tiles_wide) * sprite.bitmap.height)
+      sprite.x += @tiles_wide * sprite.bitmap.width if sprite.x - @ox - @ox_offset < -sprite.bitmap.width
+      sprite.y -= @tiles_tall * sprite.bitmap.height if sprite.y - @oy - @oy_offset > Graphics.height
       sprite.visible = true
       if @fading && @type != @target_type
-        if @fade_time >= FADE_OLD_TILES_START && @fade_time < FADE_OLD_TILES_END
-          if @time_shift == 0   # There were old tiles to fade out
-            fraction = (@fade_time - [FADE_OLD_TILES_START - @time_shift, 0].max) / (FADE_OLD_TILES_END - FADE_OLD_TILES_START)
-            sprite.opacity = 255 * (1 - fraction)
-          end
+        if @fade_time >= FADE_OLD_TILES_START && @fade_time < FADE_OLD_TILES_END &&
+           @time_shift == 0   # There were old tiles to fade out
+          fraction = (@fade_time - [FADE_OLD_TILES_START - @time_shift, 0].max) / (FADE_OLD_TILES_END - FADE_OLD_TILES_START)
+          sprite.opacity = 255 * (1 - fraction)
         elsif @fade_time >= [FADE_NEW_TILES_START - @time_shift, 0].max &&
               @fade_time < [FADE_NEW_TILES_END - @time_shift, 0].max
           fraction = (@fade_time - [FADE_NEW_TILES_START - @time_shift, 0].max) / (FADE_NEW_TILES_END - FADE_NEW_TILES_START)
@@ -361,10 +376,10 @@ module RPG
              @fade_time < [FADE_NEW_TONE_END - @time_shift, 0].max
             weather_max = @target_max
             fract = (@fade_time - [FADE_NEW_TONE_START - @time_shift, 0].max) / (FADE_NEW_TONE_END - FADE_NEW_TONE_START)
-            tone_red = @target_tone.red + (1 - fract) * (@old_tone.red - @target_tone.red)
-            tone_green = @target_tone.green + (1 - fract) * (@old_tone.green - @target_tone.green)
-            tone_blue = @target_tone.blue + (1 - fract) * (@old_tone.blue - @target_tone.blue)
-            tone_gray = @target_tone.gray + (1 - fract) * (@old_tone.gray - @target_tone.gray)
+            tone_red = @target_tone.red + ((1 - fract) * (@old_tone.red - @target_tone.red))
+            tone_green = @target_tone.green + ((1 - fract) * (@old_tone.green - @target_tone.green))
+            tone_blue = @target_tone.blue + ((1 - fract) * (@old_tone.blue - @target_tone.blue))
+            tone_gray = @target_tone.gray + ((1 - fract) * (@old_tone.gray - @target_tone.gray))
           else
             tone_red = @viewport.tone.red
             tone_green = @viewport.tone.green
@@ -400,7 +415,7 @@ module RPG
         @sun_magnitude = weather_max if @sun_magnitude != weather_max && @sun_magnitude != -weather_max
         @sun_magnitude *= -1 if (@sun_magnitude > 0 && @sun_strength > @sun_magnitude) ||
                                 (@sun_magnitude < 0 && @sun_strength < 0)
-        @sun_strength += @sun_magnitude.to_f * Graphics.delta_s / 0.4   # 0.4 seconds per half flash
+        @sun_strength += @sun_magnitude.to_f * Graphics.delta / 0.8   # 0.8 seconds per half flash
         tone_red += @sun_strength
         tone_green += @sun_strength
         tone_blue += @sun_strength / 2
@@ -413,7 +428,7 @@ module RPG
     def update_fading
       return if !@fading
       old_fade_time = @fade_time
-      @fade_time += Graphics.delta_s
+      @fade_time += Graphics.delta
       # Change tile bitmaps
       if @type != @target_type
         tile_change_threshold = [FADE_OLD_TONE_END - @time_shift, 0].max
@@ -445,25 +460,24 @@ module RPG
         @new_sprites.each_with_index { |sprite, i| sprite.visible = (i < @new_max) if sprite }
       end
       # End fading
-      if @fade_time >= ((@target_type == :None) ? FADE_OLD_PARTICLES_END : FADE_NEW_TILES_END) - @time_shift
-        if !@sprites.any? { |sprite| sprite.visible }
-          @type                 = @target_type
-          @max                  = @target_max
-          @target_type          = nil
-          @target_max           = nil
-          @old_max              = nil
-          @new_max              = nil
-          @old_tone             = nil
-          @target_tone          = nil
-          @fade_time            = 0.0
-          @time_shift           = 0
-          @sprites.each { |sprite| sprite.dispose if sprite }
-          @sprites              = @new_sprites
-          @new_sprites          = []
-          @sprite_lifetimes     = @new_sprite_lifetimes
-          @new_sprite_lifetimes = []
-          @fading               = false
-        end
+      if @fade_time >= ((@target_type == :None) ? FADE_OLD_PARTICLES_END : FADE_NEW_TILES_END) - @time_shift &&
+         @sprites.none? { |sprite| sprite.visible }
+        @type                 = @target_type
+        @max                  = @target_max
+        @target_type          = nil
+        @target_max           = nil
+        @old_max              = nil
+        @new_max              = nil
+        @old_tone             = nil
+        @target_tone          = nil
+        @fade_time            = 0.0
+        @time_shift           = 0
+        @sprites.each { |sprite| sprite&.dispose }
+        @sprites              = @new_sprites
+        @new_sprites          = []
+        @sprite_lifetimes     = @new_sprite_lifetimes
+        @new_sprite_lifetimes = []
+        @fading               = false
       end
     end
 
@@ -473,43 +487,43 @@ module RPG
       # Storm flashes
       if @type == :Storm && !@fading
         if @time_until_flash > 0
-          @time_until_flash -= Graphics.delta_s
+          @time_until_flash -= Graphics.delta
           if @time_until_flash <= 0
-            @viewport.flash(Color.new(255, 255, 255, 230), (2 + rand(3)) * 20)
+            @viewport.flash(Color.new(255, 255, 255, 230), rand(2..4) * 20)
           end
         end
         if @time_until_flash <= 0
-          @time_until_flash = (1 + rand(12)) * 0.5   # 0.5-6 seconds
+          @time_until_flash = rand(1..12) * 0.5   # 0.5-6 seconds
         end
       end
       @viewport.update
       # Update weather particles (raindrops, snowflakes, etc.)
       if @weatherTypes[@type] && @weatherTypes[@type][1].length > 0
         ensureSprites
-        for i in 0...MAX_SPRITES
+        MAX_SPRITES.times do |i|
           update_sprite_position(@sprites[i], i, false)
         end
       elsif @sprites.length > 0
-        @sprites.each { |sprite| sprite.dispose if sprite }
+        @sprites.each { |sprite| sprite&.dispose }
         @sprites.clear
       end
       # Update new weather particles (while fading in only)
       if @fading && @weatherTypes[@target_type] && @weatherTypes[@target_type][1].length > 0
         ensureSprites
-        for i in 0...MAX_SPRITES
+        MAX_SPRITES.times do |i|
           update_sprite_position(@new_sprites[i], i, true)
         end
       elsif @new_sprites.length > 0
-        @new_sprites.each { |sprite| sprite.dispose if sprite }
+        @new_sprites.each { |sprite| sprite&.dispose }
         @new_sprites.clear
       end
-      # Update weather tiles (sandstorm/blizzard tiled overlay)
+      # Update weather tiles (sandstorm/blizzard/fog tiled overlay)
       if @tiles_wide > 0 && @tiles_tall > 0
         ensureTiles
         recalculate_tile_positions
         @tiles.each_with_index { |sprite, i| update_tile_position(sprite, i) }
       elsif @tiles.length > 0
-        @tiles.each { |sprite| sprite.dispose if sprite }
+        @tiles.each { |sprite| sprite&.dispose }
         @tiles.clear
       end
     end

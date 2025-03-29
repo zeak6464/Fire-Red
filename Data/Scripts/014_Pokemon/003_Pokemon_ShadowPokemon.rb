@@ -8,9 +8,9 @@ class Pokemon
   attr_accessor :saved_exp
   attr_accessor :saved_ev
   attr_accessor :shadow_moves
-  HEART_GAUGE_SIZE = 3840
+  attr_accessor :heart_gauge_step_counter
 
-  alias :__shadow_expeq :exp=
+  alias __shadow_expeq exp= unless method_defined?(:__shadow_expeq)
   def exp=(value)
     if shadowPokemon?
       @saved_exp += value - @exp
@@ -19,7 +19,7 @@ class Pokemon
     end
   end
 
-  alias :__shadow_hpeq :hp=
+  alias __shadow_hpeq hp= unless method_defined?(:__shadow_hpeq)
   def hp=(value)
     __shadow_hpeq(value)
     @hyper_mode = false if @hp <= 0
@@ -29,56 +29,118 @@ class Pokemon
     return @heart_gauge || 0
   end
 
+  def shadow_data
+    return GameData::ShadowPokemon.get_species_form(@species, form_simple)
+  end
+
+  def max_gauge_size
+    data = shadow_data
+    return (data) ? data.gauge_size : GameData::ShadowPokemon::HEART_GAUGE_SIZE
+  end
+
   def adjustHeart(value)
     return if !shadowPokemon?
-    @heart_gauge = (self.heart_gauge + value).clamp(0, HEART_GAUGE_SIZE)
+    @heart_gauge = (self.heart_gauge + value).clamp(0, max_gauge_size)
+  end
+
+  def change_heart_gauge(method, multiplier = 1)
+    return if !shadowPokemon?
+    heart_amounts = {
+      # [sending into battle, call to, walking 256 steps, using scent]
+      :HARDY   => [110, 300, 100,  90],
+      :LONELY  => [ 70, 330, 100, 130],
+      :BRAVE   => [130, 270,  90,  80],
+      :ADAMANT => [110, 270, 110,  80],
+      :NAUGHTY => [120, 270, 110,  70],
+      :BOLD    => [110, 270,  90, 100],
+      :DOCILE  => [100, 360,  80, 120],
+      :RELAXED => [ 90, 270, 110, 100],
+      :IMPISH  => [120, 300, 100,  80],
+      :LAX     => [100, 270,  90, 110],
+      :TIMID   => [ 70, 330, 110, 120],
+      :HASTY   => [130, 300,  70, 100],
+      :SERIOUS => [100, 330, 110,  90],
+      :JOLLY   => [120, 300,  90,  90],
+      :NAIVE   => [100, 300, 120,  80],
+      :MODEST  => [ 70, 300, 120, 110],
+      :MILD    => [ 80, 270, 100, 120],
+      :QUIET   => [100, 300, 100, 100],
+      :BASHFUL => [ 80, 300,  90, 130],
+      :RASH    => [ 90, 300,  90, 120],
+      :CALM    => [ 80, 300, 110, 110],
+      :GENTLE  => [ 70, 300, 130, 100],
+      :SASSY   => [130, 240, 100,  70],
+      :CAREFUL => [ 90, 300, 100, 110],
+      :QUIRKY  => [130, 270,  80,  90]
+    }
+    amt = 100
+    case method
+    when "battle"
+      amt = (heart_amounts[@nature]) ? heart_amounts[@nature][0] : 100
+    when "call"
+      amt = (heart_amounts[@nature]) ? heart_amounts[@nature][1] : 300
+    when "walking"
+      amt = (heart_amounts[@nature]) ? heart_amounts[@nature][2] : 100
+    when "scent"
+      amt = (heart_amounts[@nature]) ? heart_amounts[@nature][3] : 100
+      amt *= multiplier
+    else
+      raise _INTL("Unknown heart gauge-changing method: {1}", method.to_s)
+    end
+    adjustHeart(-amt)
   end
 
   def heartStage
     return 0 if !shadowPokemon?
-    stage_size = HEART_GAUGE_SIZE / 5.0
-    return ([self.heart_gauge, HEART_GAUGE_SIZE].min / stage_size).ceil
+    max_size = max_gauge_size
+    stage_size = max_size / 5.0
+    return ([self.heart_gauge, max_size].min / stage_size).ceil
   end
 
   def shadowPokemon?
     return @shadow && @heart_gauge && @heart_gauge >= 0
   end
-  alias isShadow? shadowPokemon?
 
   def hyper_mode
     return (self.heart_gauge == 0 || @hp == 0) ? false : @hyper_mode
   end
 
+  alias __shadow__changeHappiness changeHappiness unless method_defined?(:__shadow__changeHappiness)
+  def changeHappiness(method)
+    return if shadowPokemon? && heartStage >= 4
+    __shadow__changeHappiness(method)
+  end
+
   def makeShadow
     @shadow       = true
-    @heart_gauge  = HEART_GAUGE_SIZE
     @hyper_mode   = false
     @saved_exp    = 0
     @saved_ev     = {}
     GameData::Stat.each_main { |s| @saved_ev[s.id] = 0 }
+    @heart_gauge  = max_gauge_size
+    @heart_gauge_step_counter = 0
     @shadow_moves = []
     # Retrieve Shadow moveset for this Pokémon
-    shadow_moveset = pbLoadShadowMovesets[species_data.id]
-    shadow_moveset = pbLoadShadowMovesets[@species] if !shadow_moveset || shadow_moveset.length == 0
+    data = shadow_data
     # Record this Pokémon's Shadow moves
-    if shadow_moveset && shadow_moveset.length > 0
-      for i in 0...[shadow_moveset.length, MAX_MOVES].min
-        @shadow_moves[i] = shadow_moveset[i]
+    if data
+      data.moves.each do |m|
+        @shadow_moves.push(m) if GameData::Move.exists?(m)
+        break if @shadow_moves.length >= MAX_MOVES
       end
-    elsif GameData::Move.exists?(:SHADOWRUSH)
-      # No Shadow moveset defined; just use Shadow Rush
-      @shadow_moves[0] = :SHADOWRUSH
-    else
-      raise _INTL("Expected Shadow moves or Shadow Rush to be defined, but they weren't.")
+    end
+    if @shadow_moves.empty? && GameData::Move.exists?(:SHADOWRUSH)
+      @shadow_moves.push(:SHADOWRUSH)
     end
     # Record this Pokémon's original moves
-    @moves.each_with_index { |m, i| @shadow_moves[MAX_MOVES + i] = m.id }
-    # Update moves
-    update_shadow_moves
+    if !@shadow_moves.empty?
+      @moves.each_with_index { |m, i| @shadow_moves[MAX_MOVES + i] = m.id }
+      update_shadow_moves
+    end
   end
 
-  def update_shadow_moves(relearn_all_moves = false)
-    return if !@shadow_moves
+  def update_shadow_moves
+    return if !@shadow_moves || @shadow_moves.empty?
     # Not a Shadow Pokémon (any more); relearn all its original moves
     if !shadowPokemon?
       if @shadow_moves.length > MAX_MOVES
@@ -95,7 +157,7 @@ class Pokemon
     @shadow_moves.each_with_index { |m, i| new_moves.push(m) if m && i < MAX_MOVES }
     num_shadow_moves = new_moves.length
     # Add some original moves (skipping ones in the same slot as a Shadow Move)
-    num_original_moves = (relearn_all_moves) ? 3 : [3, 3, 2, 1, 1, 0][self.heartStage]
+    num_original_moves = [3, 3, 2, 1, 1, 0][self.heartStage]
     if num_original_moves > 0
       relearned_count = 0
       @shadow_moves.each_with_index do |m, i|
@@ -110,17 +172,16 @@ class Pokemon
   end
 
   def replace_moves(new_moves)
+    # Forget any known moves that aren't in new_moves
+    @moves.each_with_index do |m, i|
+      @moves[i] = nil if !new_moves.include?(m.id)
+    end
+    @moves.compact!
+    # Learn any moves in new_moves that aren't known
     new_moves.each do |move|
       next if !move || !GameData::Move.exists?(move) || hasMove?(move)
-      if numMoves < Pokemon::MAX_MOVES   # Has an empty slot; just learn move
-        learn_move(move)
-        next
-      end
-      @moves.each do |m|
-        next if new_moves.include?(m.id)
-        m.id = GameData::Move.get(move).id
-        break
-      end
+      break if numMoves >= Pokemon::MAX_MOVES
+      learn_move(move)
     end
   end
 
@@ -148,7 +209,7 @@ class Pokemon
     end
   end
 
-  alias :__shadow_clone :clone
+  alias __shadow_clone clone unless method_defined?(:__shadow_clone)
   def clone
     ret = __shadow_clone
     if @saved_ev

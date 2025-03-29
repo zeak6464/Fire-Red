@@ -24,10 +24,8 @@ end
 
 def mainFunctionDebug
   begin
-    MessageTypes.loadMessageFile("Data/messages.dat") if safeExists?("Data/messages.dat")
+    MessageTypes.load_default_messages if FileTest.exist?("Data/messages_core.dat")
     PluginManager.runPlugins
-    # Change the frame rate of the Game if EBDX is being used
-    Graphics.frame_rate = 40 if defined?(EliteBattle)
     Compiler.main
     Game.initialize
     Game.set_up_system
@@ -35,7 +33,7 @@ def mainFunctionDebug
     Graphics.freeze
     $scene = pbCallTitle
     $scene.main until $scene.nil?
-    Graphics.transition(20)
+    Graphics.transition
   rescue Hangup
     pbPrintException($!) if !$DEBUG
     pbEmergencySave
@@ -45,11 +43,12 @@ end
 
 loop do
   retval = mainFunction
-  if retval == 0   # failed
+  case retval
+  when 0   # failed
     loop do
       Graphics.update
     end
-  elsif retval == 1   # ended successfully
+  when 1   # ended successfully
     break
   end
 end

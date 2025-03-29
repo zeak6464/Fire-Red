@@ -1,6 +1,7 @@
 ﻿Name      = v19.1 Better Fast-forward Mode
 Version   = 1.0
 Website   = https://www.pokecommunity.com/showthread.php?t=401043
+Essentials = 19.1,21.1
 Credits   = Marin
 #=====================================================================
 # Change log

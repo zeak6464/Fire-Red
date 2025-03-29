@@ -2,10 +2,11 @@
 # Nicknaming and storing Pokémon
 #===============================================================================
 def pbBoxesFull?
-  return ($Trainer.party_full? && $PokemonStorage.full?)
+  return ($player.party_full? && $PokemonStorage.full?)
 end
 
 def pbNickname(pkmn)
+  return if $PokemonSystem.givenicknames != 0
   species_name = pkmn.speciesName
   if pbConfirmMessage(_INTL("Would you like to give a nickname to {1}?", species_name))
     pkmn.name = pbEnterPokemonName(_INTL("{1}'s nickname?", species_name),
@@ -15,46 +16,28 @@ end
 
 def pbStorePokemon(pkmn)
   if pbBoxesFull?
-    pbMessage(_INTL("There's no more room for Pokémon!\1"))
+    pbMessage(_INTL("There's no more room for Pokémon!") + "\1")
     pbMessage(_INTL("The Pokémon Boxes are full and can't accept any more!"))
     return
   end
   pkmn.record_first_moves
-  if $Trainer.party_full?
-    oldcurbox = $PokemonStorage.currentBox
-    storedbox = $PokemonStorage.pbStoreCaught(pkmn)
-    curboxname = $PokemonStorage[oldcurbox].name
-    boxname = $PokemonStorage[storedbox].name
-    creator = nil
-    creator = pbGetStorageCreator if $Trainer.seen_storage_creator
-    if storedbox != oldcurbox
-      if creator
-        pbMessage(_INTL("Box \"{1}\" on {2}'s PC was full.\1", curboxname, creator))
-      else
-        pbMessage(_INTL("Box \"{1}\" on someone's PC was full.\1", curboxname))
-      end
-      pbMessage(_INTL("{1} was transferred to box \"{2}.\"", pkmn.name, boxname))
-    else
-      if creator
-        pbMessage(_INTL("{1} was transferred to {2}'s PC.\1", pkmn.name, creator))
-      else
-        pbMessage(_INTL("{1} was transferred to someone's PC.\1", pkmn.name))
-      end
-      pbMessage(_INTL("It was stored in box \"{1}.\"", boxname))
-    end
+  if $player.party_full?
+    stored_box = $PokemonStorage.pbStoreCaught(pkmn)
+    box_name   = $PokemonStorage[stored_box].name
+    pbMessage(_INTL("{1} has been sent to Box \"{2}\"!", pkmn.name, box_name))
   else
-    $Trainer.party[$Trainer.party.length] = pkmn
+    $player.party[$player.party.length] = pkmn
   end
 end
 
 def pbNicknameAndStore(pkmn)
   if pbBoxesFull?
-    pbMessage(_INTL("There's no more room for Pokémon!\1"))
+    pbMessage(_INTL("There's no more room for Pokémon!") + "\1")
     pbMessage(_INTL("The Pokémon Boxes are full and can't accept any more!"))
     return
   end
-  $Trainer.pokedex.set_seen(pkmn.species)
-  $Trainer.pokedex.set_owned(pkmn.species)
+  $player.pokedex.set_seen(pkmn.species)
+  $player.pokedex.set_owned(pkmn.species)
   pbNickname(pkmn)
   pbStorePokemon(pkmn)
 end
@@ -65,28 +48,44 @@ end
 def pbAddPokemon(pkmn, level = 1, see_form = true)
   return false if !pkmn
   if pbBoxesFull?
-    pbMessage(_INTL("There's no more room for Pokémon!\1"))
+    pbMessage(_INTL("There's no more room for Pokémon!") + "\1")
     pbMessage(_INTL("The Pokémon Boxes are full and can't accept any more!"))
     return false
   end
   pkmn = Pokemon.new(pkmn, level) if !pkmn.is_a?(Pokemon)
   species_name = pkmn.speciesName
-  pbMessage(_INTL("{1} obtained {2}!\\me[Pkmn get]\\wtnp[80]\1", $Trainer.name, species_name))
+  pbMessage(_INTL("{1} obtained {2}!", $player.name, species_name) + "\\me[Pkmn get]\\wtnp[80]")
+  was_owned = $player.owned?(pkmn.species)
+  $player.pokedex.set_seen(pkmn.species)
+  $player.pokedex.set_owned(pkmn.species)
+  $player.pokedex.register(pkmn) if see_form
+  # Show Pokédex entry for new species if it hasn't been owned before
+  if Settings::SHOW_NEW_SPECIES_POKEDEX_ENTRY_MORE_OFTEN && see_form && !was_owned &&
+     $player.has_pokedex && $player.pokedex.species_in_unlocked_dex?(pkmn.species)
+    pbMessage(_INTL("{1}'s data was added to the Pokédex.", species_name))
+    $player.pokedex.register_last_seen(pkmn)
+    pbFadeOutIn do
+      scene = PokemonPokedexInfo_Scene.new
+      screen = PokemonPokedexInfoScreen.new(scene)
+      screen.pbDexEntry(pkmn.species)
+    end
+  end
+  # Nickname and add the Pokémon
   pbNicknameAndStore(pkmn)
-  $Trainer.pokedex.register(pkmn) if see_form
   return true
 end
 
 def pbAddPokemonSilent(pkmn, level = 1, see_form = true)
   return false if !pkmn || pbBoxesFull?
   pkmn = Pokemon.new(pkmn, level) if !pkmn.is_a?(Pokemon)
-  $Trainer.pokedex.register(pkmn) if see_form
-  $Trainer.pokedex.set_owned(pkmn.species)
+  $player.pokedex.set_seen(pkmn.species)
+  $player.pokedex.set_owned(pkmn.species)
+  $player.pokedex.register(pkmn) if see_form
   pkmn.record_first_moves
-  if $Trainer.party_full?
+  if $player.party_full?
     $PokemonStorage.pbStoreCaught(pkmn)
   else
-    $Trainer.party[$Trainer.party.length] = pkmn
+    $player.party[$player.party.length] = pkmn
   end
   return true
 end
@@ -95,47 +94,73 @@ end
 # Giving Pokémon/eggs to the player (can only add to party)
 #===============================================================================
 def pbAddToParty(pkmn, level = 1, see_form = true)
-  return false if !pkmn || $Trainer.party_full?
+  return false if !pkmn || $player.party_full?
   pkmn = Pokemon.new(pkmn, level) if !pkmn.is_a?(Pokemon)
   species_name = pkmn.speciesName
-  pbMessage(_INTL("{1} obtained {2}!\\me[Pkmn get]\\wtnp[80]\1", $Trainer.name, species_name))
+  pbMessage(_INTL("{1} obtained {2}!", $player.name, species_name) + "\\me[Pkmn get]\\wtnp[80]")
+  was_owned = $player.owned?(pkmn.species)
+  $player.pokedex.set_seen(pkmn.species)
+  $player.pokedex.set_owned(pkmn.species)
+  $player.pokedex.register(pkmn) if see_form
+  # Show Pokédex entry for new species if it hasn't been owned before
+  if Settings::SHOW_NEW_SPECIES_POKEDEX_ENTRY_MORE_OFTEN && see_form && !was_owned &&
+     $player.has_pokedex && $player.pokedex.species_in_unlocked_dex?(pkmn.species)
+    pbMessage(_INTL("{1}'s data was added to the Pokédex.", species_name))
+    $player.pokedex.register_last_seen(pkmn)
+    pbFadeOutIn do
+      scene = PokemonPokedexInfo_Scene.new
+      screen = PokemonPokedexInfoScreen.new(scene)
+      screen.pbDexEntry(pkmn.species)
+    end
+  end
+  # Nickname and add the Pokémon
   pbNicknameAndStore(pkmn)
-  $Trainer.pokedex.register(pkmn) if see_form
   return true
 end
 
 def pbAddToPartySilent(pkmn, level = nil, see_form = true)
-  return false if !pkmn || $Trainer.party_full?
+  return false if !pkmn || $player.party_full?
   pkmn = Pokemon.new(pkmn, level) if !pkmn.is_a?(Pokemon)
-  $Trainer.pokedex.register(pkmn) if see_form
-  $Trainer.pokedex.set_owned(pkmn.species)
+  $player.pokedex.register(pkmn) if see_form
+  $player.pokedex.set_owned(pkmn.species)
   pkmn.record_first_moves
-  $Trainer.party[$Trainer.party.length] = pkmn
+  $player.party[$player.party.length] = pkmn
   return true
 end
 
 def pbAddForeignPokemon(pkmn, level = 1, owner_name = nil, nickname = nil, owner_gender = 0, see_form = true)
-  return false if !pkmn || $Trainer.party_full?
+  return false if !pkmn || $player.party_full?
   pkmn = Pokemon.new(pkmn, level) if !pkmn.is_a?(Pokemon)
-  # Set original trainer to a foreign one
   pkmn.owner = Pokemon::Owner.new_foreign(owner_name || "", owner_gender)
-  # Set nickname
   pkmn.name = nickname[0, Pokemon::MAX_NAME_SIZE] if !nil_or_empty?(nickname)
-  # Recalculate stats
   pkmn.calc_stats
   if owner_name
-    pbMessage(_INTL("\\me[Pkmn get]{1} received a Pokémon from {2}.\1", $Trainer.name, owner_name))
+    pbMessage(_INTL("{1} received a Pokémon from {2}.", $player.name, owner_name) + "\\me[Pkmn get]\\wtnp[80]")
   else
-    pbMessage(_INTL("\\me[Pkmn get]{1} received a Pokémon.\1", $Trainer.name))
+    pbMessage(_INTL("{1} received a Pokémon.", $player.name) + "\\me[Pkmn get]\\wtnp[80]")
   end
+  was_owned = $player.owned?(pkmn.species)
+  $player.pokedex.set_seen(pkmn.species)
+  $player.pokedex.set_owned(pkmn.species)
+  $player.pokedex.register(pkmn) if see_form
+  # Show Pokédex entry for new species if it hasn't been owned before
+  if Settings::SHOW_NEW_SPECIES_POKEDEX_ENTRY_MORE_OFTEN && see_form && !was_owned &&
+     $player.has_pokedex && $player.pokedex.species_in_unlocked_dex?(pkmn.species)
+    pbMessage(_INTL("The Pokémon's data was added to the Pokédex."))
+    $player.pokedex.register_last_seen(pkmn)
+    pbFadeOutIn do
+      scene = PokemonPokedexInfo_Scene.new
+      screen = PokemonPokedexInfoScreen.new(scene)
+      screen.pbDexEntry(pkmn.species)
+    end
+  end
+  # Add the Pokémon
   pbStorePokemon(pkmn)
-  $Trainer.pokedex.register(pkmn) if see_form
-  $Trainer.pokedex.set_owned(pkmn.species)
   return true
 end
 
 def pbGenerateEgg(pkmn, text = "")
-  return false if !pkmn || $Trainer.party_full?
+  return false if !pkmn || $player.party_full?
   pkmn = Pokemon.new(pkmn, Settings::EGG_LEVEL) if !pkmn.is_a?(Pokemon)
   # Set egg's details
   pkmn.name           = _INTL("Egg")
@@ -143,7 +168,7 @@ def pbGenerateEgg(pkmn, text = "")
   pkmn.obtain_text    = text
   pkmn.calc_stats
   # Add egg to party
-  $Trainer.party[$Trainer.party.length] = pkmn
+  $player.party[$player.party.length] = pkmn
   return true
 end
 alias pbAddEgg pbGenerateEgg
@@ -154,7 +179,7 @@ alias pbGenEgg pbGenerateEgg
 #===============================================================================
 # Returns the first unfainted, non-egg Pokémon in the player's party.
 def pbFirstAblePokemon(variable_ID)
-  $Trainer.party.each_with_index do |pkmn, i|
+  $player.party.each_with_index do |pkmn, i|
     next if !pkmn.able?
     pbSet(variable_ID, i)
     return pkmn
@@ -173,7 +198,7 @@ def pbBalancedLevel(party)
   party.each { |p| sum += p.level }
   return 1 if sum == 0
   mLevel = GameData::GrowthRate.max_level
-  average = sum.to_f / party.length.to_f
+  average = sum.to_f / party.length
   # Calculate the standard deviation
   varianceTimesN = 0
   party.each do |pkmn|
@@ -187,7 +212,7 @@ def pbBalancedLevel(party)
   weights = []
   # Skew weights according to standard deviation
   party.each do |pkmn|
-    weight = pkmn.level.to_f / sum.to_f
+    weight = pkmn.level.to_f / sum
     if weight < 0.5
       weight -= (stdev / mLevel.to_f)
       weight = 0.001 if weight <= 0.001
@@ -225,25 +250,25 @@ def pbSize(pkmn)
   spiv = pkmn.iv[:SPEED] & 15
   m = pkmn.personalID & 0xFF
   n = (pkmn.personalID >> 8) & 0xFF
-  s = (((ativ ^ dfiv) * hpiv) ^ m) * 256 + (((saiv ^ sdiv) * spiv) ^ n)
-  xyz = []
-  if s < 10;       xyz = [ 290,   1,     0]
-  elsif s < 110;   xyz = [ 300,   1,    10]
-  elsif s < 310;   xyz = [ 400,   2,   110]
-  elsif s < 710;   xyz = [ 500,   4,   310]
-  elsif s < 2710;  xyz = [ 600,  20,   710]
-  elsif s < 7710;  xyz = [ 700,  50,  2710]
-  elsif s < 17710; xyz = [ 800, 100,  7710]
-  elsif s < 32710; xyz = [ 900, 150, 17710]
-  elsif s < 47710; xyz = [1000, 150, 32710]
-  elsif s < 57710; xyz = [1100, 100, 47710]
-  elsif s < 62710; xyz = [1200,  50, 57710]
-  elsif s < 64710; xyz = [1300,  20, 62710]
-  elsif s < 65210; xyz = [1400,   5, 64710]
-  elsif s < 65410; xyz = [1500,   2, 65210]
-  else;            xyz = [1700,   1, 65510]
+  s = ((((ativ ^ dfiv) * hpiv) ^ m) * 256) + (((saiv ^ sdiv) * spiv) ^ n)
+  xyz = [1700, 1, 65_510]
+  case s
+  when 0...10          then xyz = [ 290,   1,      0]
+  when 10...110        then xyz = [ 300,   1,     10]
+  when 110...310       then xyz = [ 400,   2,    110]
+  when 310...710       then xyz = [ 500,   4,    310]
+  when 710...2710      then xyz = [ 600,  20,    710]
+  when 2710...7710     then xyz = [ 700,  50,   2710]
+  when 7710...17_710   then xyz = [ 800, 100,   7710]
+  when 17_710...32_710 then xyz = [ 900, 150, 17_710]
+  when 32_710...47_710 then xyz = [1000, 150, 32_710]
+  when 47_710...57_710 then xyz = [1100, 100, 47_710]
+  when 57_710...62_710 then xyz = [1200,  50, 57_710]
+  when 62_710...64_710 then xyz = [1300,  20, 62_710]
+  when 64_710...65_210 then xyz = [1400,   5, 64_710]
+  when 65_210...65_410 then xyz = [1500,   2, 65_210]
   end
-  return (((s - xyz[2]) / xyz[1] + xyz[0]).floor * baseheight / 10).floor
+  return ((((s - xyz[2]) / xyz[1]) + xyz[0]).floor * baseheight / 10).floor
 end
 
 #===============================================================================
@@ -264,175 +289,4 @@ def pbHasEgg?(species)
   baby = GameData::Species.get(species).get_baby_species(true)
   return true if species == baby   # Is an egg species without incense
   return false
-end
-
-#===============================================================================
-# Evolve a Pokemon from an event
-#===============================================================================
-def pbEvolvePokemonEvent(species,forced_form = -1,check_fainted = Settings::CHECK_EVOLUTION_FOR_FAINTED_POKEMON)
-  species = [species] if !species.is_a?(Array)
-  $Trainer.party.each do |pkmn|
-    next if !species.any? {|s| pkmn.isSpecies?(s) }
-    next if !pkmn.able? && check_fainted
-    new_species = pkmn.check_evolution_in_event
-    next if !new_species
-    $game_player.straighten
-    pkmn.form = forced_form if forced_form >= 0
-    evo = PokemonEvolutionScene.new
-    pbFadeOutIn(99999) {
-      evo.pbStartScreen(pkmn,new_species)
-      evo.pbEvolution
-      evo.pbEndScreen
-    }
-  end
-end
-
-#===============================================================================
-# Hyper Training
-#===============================================================================
-def pbHyperTrainer(standard_item ,rare_item, check_level = true,check_badges = true)
-  itemName1 = GameData::Item.get(standard_item).name_plural
-  itemName2 = GameData::Item.get(rare_item).name_plural
-  if !$PokemonBag.pbHasItem?(standard_item) && !$PokemonBag.pbHasItem?(rare_item)
-    pbMessage(_INTL("Come back when you have {1} or {2}.",itemName1,itemName2))
-    return false
-  end
-  if check_badges && $Trainer.badge_count < 8
-    pbMessage(_INTL("Come back when you have 8 or more badges."))
-    return false
-  end
-  pbMessage(_INTL("Now which Pokémon will I have undergo Hyper Training?"))
-  ret = false
-  loop do
-    pbChoosePokemon(1,3,proc { |pkmn|
-      next if !pkmn.able?
-      next if (pkmn.level != GameData::GrowthRate.max_level && check_level)
-      failed = false
-      GameData::Stat.each_main do |s|
-        next if pkmn.ivMaxed[s.id] || pkmn.iv[s.id] == Pokemon::IV_STAT_LIMIT
-        failed = true
-        break
-      end
-      next failed
-      }
-    )
-    if !pbGet(1) || pbGet(1) < 0
-      pbMessage(_INTL("Come back when you're ready to get hyped for some Hyper Training!"))
-      ret = false
-      break
-    end
-    pkmn = $Trainer.party[pbGet(1)]
-    commands = []; displayCmd = [];
-    if $PokemonBag.pbHasItem?(standard_item)
-      commands.push(0)
-      displayCmd.push(_INTL("{1} :{2}",itemName1,$PokemonBag.pbQuantity(standard_item)))
-    end
-    if $PokemonBag.pbHasItem?(rare_item)
-      commands.push(1)
-      displayCmd.push(_INTL("{1} :{2}",itemName2,$PokemonBag.pbQuantity(rare_item)))
-    end
-    commands.push(2)
-    displayCmd.push("Cancel")
-    selCmd = pbMessage(_INTL("What would you like to use?"),displayCmd)
-    cmd = commands[selCmd]
-    case cmd
-    when 0
-      pbMessage(_INTL("Which stat should I hype up?"))
-      statSelected = pbShowStatSelectionCommands(standard_item,pkmn)
-      if statSelected.length > 0
-        pbMessage(_INTL("The training starts now!"))
-        pbFadeOutIn(99999) {
-          echoln(statSelected)
-          statSelected.each do |s|
-            pkmn.ivMaxed[s] = true
-          end
-          $PokemonBag.pbDeleteItem(standard_item,statSelected.length)
-          pbWait(Graphics.frame_rate)
-        }
-        pbMessage(_INTL("Phew... {1} got stronger from the Hyper Training!",pkmn.name))
-        if pbConfirmMessage(_INTL("Want to keep the hype going with some more Hyper Training?"))
-          next
-        else
-          cmd = 2
-        end
-      else
-        cmd = 2
-      end
-    when 1
-      pbMessage(_INTL("The training starts now!"))
-      pbFadeOutIn(99999) {
-        GameData::Stat.each_main do |s|
-          pkmn.ivMaxed[s.id] = true
-        end
-        $PokemonBag.pbDeleteItem(rare_item,1)
-        pbWait(Graphics.frame_rate)
-      }
-      pbMessage(_INTL("Phew... {1} got stronger from the Hyper Training!",pkmn.name))
-      if pbConfirmMessage(_INTL("Want to keep the hype going with some more Hyper Training?"))
-        next
-      else
-        cmd = 2
-      end
-    end
-    if cmd == 2
-      pbMessage(_INTL("Come back when you're ready to get hyped for some Hyper Training!"))
-      ret = false
-      break
-    end
-  end
-  return ret
-end
-
-def pbShowStatSelectionCommands(item,pkmn)
-  commands2 = []; displayCmd2 = [];
-  cmdwindow=Window_CommandPokemonEx.new([])
-  cmdwindow.z=99999
-  cmdwindow.visible=true
-  cmdwindow.index = 0
-  statSelected = []
-  need_refresh = true
-  loop do
-    if need_refresh
-      commands2 = []; displayCmd2 = [];
-      GameData::Stat.each_main do |s|
-        next if pkmn.ivMaxed[s.id] || pkmn.iv[s.id] == Pokemon::IV_STAT_LIMIT
-        commands2.push(s.id)
-        displayCmd2.push(_INTL("{1} {2}",statSelected.include?(s.id) ? "[x]" : "[  ]",s.name))
-      end
-      commands2.push(:NONE)
-      displayCmd2.push("Lets train!")
-      cmdwindow.commands = displayCmd2
-      cmdwindow.resizeToFit(cmdwindow.commands)
-      need_refresh = false
-    end
-    Graphics.update
-    Input.update
-    cmdwindow.update
-    yield if block_given?
-    if Input.trigger?(Input::USE)
-      selCmd2 = cmdwindow.index
-      cmd2 = commands2[selCmd2]
-      break if cmd2 == :NONE
-      echoln statSelected
-      echoln statSelected.length
-      echoln $PokemonBag.pbQuantity(item)
-      if statSelected.include?(cmd2)
-        statSelected.delete(cmd2)
-      else
-        statSelected.push(cmd2)
-      end
-      if statSelected.length > $PokemonBag.pbQuantity(item)
-        pbMessage(_INTL("You don't have enough {1}",GameData::Item.get(item).name_plural))
-        statSelected.delete(cmd2)
-      end
-      need_refresh = true
-    elsif Input.trigger?(Input::BACK)
-      statSelected = []
-      break
-    end
-    pbUpdateSceneMap
-  end
-  cmdwindow.dispose
-  Input.update
-  return statSelected
 end

@@ -1,13 +1,17 @@
+#===============================================================================
+#
+#===============================================================================
 class Hangup < Exception; end
 
-
-
+#===============================================================================
+#
+#===============================================================================
 module RPG
   module Cache
     def self.debug
       t = Time.now
       filename = t.strftime("%H %M %S.%L.txt")
-      File.open("cache_" + filename, "wb") { |f|
+      File.open("cache_" + filename, "wb") do |f|
         @cache.each do |key, value|
           if !value
             f.write("#{key} (nil)\r\n")
@@ -17,7 +21,7 @@ module RPG
             f.write("#{key} (#{value.refcount}, #{value.width}x#{value.height})\r\n")
           end
         end
-      }
+      end
     end
 
     def self.setKey(key, obj)
@@ -27,7 +31,7 @@ module RPG
     def self.fromCache(i)
       return nil if !@cache.include?(i)
       obj = @cache[i]
-      return nil if obj && obj.disposed?
+      return nil if obj&.disposed?
       return obj
     end
 
@@ -67,7 +71,7 @@ module RPG
         ret.addRef
       else
         ret = BitmapWrapper.new(32 * width, 32 * height)
-        x = (tile_id - 384) % 8 * 32
+        x = ((tile_id - 384) % 8) * 32
         y = (((tile_id - 384) / 8) - height + 1) * 32
         tileset = yield(filename)
         ret.blt(0, 0, tileset, Rect.new(x, y, 32 * width, 32 * height))
@@ -86,6 +90,10 @@ module RPG
       self.load_bitmap("Graphics/Transitions/", filename)
     end
 
+    def self.ui(filename)
+      self.load_bitmap("Graphics/UI/", filename)
+    end
+
     def self.retain(folder_name, filename = "", hue = 0)
       path = folder_name + filename
       ret = fromCache(path)
@@ -102,8 +110,9 @@ module RPG
   end
 end
 
-
-
+#===============================================================================
+#
+#===============================================================================
 class BitmapWrapper < Bitmap
   attr_reader   :refcount
   attr_accessor :never_dispose

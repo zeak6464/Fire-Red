@@ -83,18 +83,14 @@ class Sprite_OWShadow
 # Calculation of shadow size when jumping
   def jump_sprite
     return unless @sprite
-    if @event.jump_distance_left >= 1 && @event.jump_distance_left < @event.jump_peak
-      @sprite.zoom_x += 0.1
-      @sprite.zoom_y += 0.1
-    elsif @event.jump_distance_left >= @event.jump_peak
-      @sprite.zoom_x -= 0.05
-      @sprite.zoom_y -= 0.05
-    end
-    @sprite.zoom_x = 1 if @sprite.zoom_x > 1
-    @sprite.zoom_x = 0 if @sprite.zoom_x < 0
-    @sprite.zoom_y = 1 if @sprite.zoom_y > 1
-    @sprite.zoom_y = 0 if @sprite.zoom_y < 0
-    if @event.jump_count == 1
+    if @event.jumping?
+      # Calculate jump progress (0 to 1)
+      jump_progress = (@event.jump_fraction - 0.5).abs   # 0.5 to 0 to 0.5
+      # Scale shadow based on jump height
+      height_factor = 1 - (jump_progress * 2)   # 1 to 0 to 1
+      @sprite.zoom_x = height_factor
+      @sprite.zoom_y = height_factor
+    else
       @sprite.zoom_x = 1.0
       @sprite.zoom_y = 1.0
     end
@@ -199,10 +195,20 @@ end
 # Adding accessors to the Game_Character class
 #-------------------------------------------------------------------------------
 class Game_Character
-  attr_reader :jump_count
-  attr_reader :jump_distance
-  attr_reader :jump_distance_left
   attr_reader :jump_peak
+  attr_reader :jump_distance
+  attr_reader :jump_fraction
+  attr_reader :jumping_on_spot
+
+  #---------------------------------------------------------------------------
+  # * Jump
+  #---------------------------------------------------------------------------
+  alias ow_shadow_jump jump
+  def jump(x_plus, y_plus)
+    ow_shadow_jump(x_plus, y_plus)
+    # The jump variables are already set in the original jump method
+    # We just need to track them for the shadow effect
+  end
 end
 
 #-------------------------------------------------------------------------------

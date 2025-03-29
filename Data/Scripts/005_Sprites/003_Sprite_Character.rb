@@ -1,3 +1,6 @@
+#===============================================================================
+#
+#===============================================================================
 class BushBitmap
   def initialize(bitmap, isTile, depth)
     @bitmaps  = []
@@ -8,7 +11,7 @@ class BushBitmap
   end
 
   def dispose
-    @bitmaps.each { |b| b.dispose if b }
+    @bitmaps.each { |b| b&.dispose }
   end
 
   def bitmap
@@ -28,7 +31,7 @@ class BushBitmap
     ret = Bitmap.new(bitmap.width, bitmap.height)
     charheight = ret.height / 4
     cy = charheight - depth - 2
-    for i in 0...4
+    4.times do |i|
       y = i * charheight
       if cy >= 0
         ret.blt(0, y, bitmap, Rect.new(0, y, ret.width, cy))
@@ -53,8 +56,9 @@ class BushBitmap
   end
 end
 
-
-
+#===============================================================================
+#
+#===============================================================================
 class Sprite_Character < RPG::Sprite
   attr_accessor :character
 
@@ -64,9 +68,11 @@ class Sprite_Character < RPG::Sprite
     @oldbushdepth = 0
     @spriteoffset = false
     if !character || character == $game_player || (character.name[/reflection/i] rescue false)
-      @reflection = Sprite_Reflection.new(self, character, viewport)
+      @reflection = Sprite_Reflection.new(self, viewport)
     end
-    @surfbase = Sprite_SurfBase.new(self, character, viewport) if character == $game_player
+    @surfbase = Sprite_SurfBase.new(self, viewport) if character == $game_player
+    self.zoom_x = TilemapRenderer::ZOOM_X
+    self.zoom_y = TilemapRenderer::ZOOM_Y
     update
   end
 
@@ -80,57 +86,64 @@ class Sprite_Character < RPG::Sprite
   end
 
   def dispose
-    @bushbitmap.dispose if @bushbitmap
+    @bushbitmap&.dispose
     @bushbitmap = nil
-    @charbitmap.dispose if @charbitmap
+    @charbitmap&.dispose
     @charbitmap = nil
-    @reflection.dispose if @reflection
+    @reflection&.dispose
     @reflection = nil
-    @surfbase.dispose if @surfbase
+    @surfbase&.dispose
     @surfbase = nil
+    @character = nil
     super
+  end
+
+  def refresh_graphic
+    return if @tile_id == @character.tile_id &&
+              @character_name == @character.character_name &&
+              @character_hue == @character.character_hue &&
+              @oldbushdepth == @character.bush_depth
+    @tile_id        = @character.tile_id
+    @character_name = @character.character_name
+    @character_hue  = @character.character_hue
+    @oldbushdepth   = @character.bush_depth
+    @charbitmap&.dispose
+    @charbitmap = nil
+    @bushbitmap&.dispose
+    @bushbitmap = nil
+    if @tile_id >= 384
+      @charbitmap = pbGetTileBitmap(@character.map.tileset_name, @tile_id,
+                                    @character_hue, @character.width, @character.height)
+      @charbitmapAnimated = false
+      @spriteoffset = false
+      @cw = Game_Map::TILE_WIDTH * @character.width
+      @ch = Game_Map::TILE_HEIGHT * @character.height
+      self.src_rect.set(0, 0, @cw, @ch)
+      self.ox = @cw / 2
+      self.oy = @ch
+    elsif @character_name != ""
+      @charbitmap = AnimatedBitmap.new(
+        "Graphics/Characters/" + @character_name, @character_hue
+      )
+      RPG::Cache.retain("Graphics/Characters/", @character_name, @character_hue) if @character == $game_player
+      @charbitmapAnimated = true
+      @spriteoffset = @character_name[/offset/i]
+      @cw = @charbitmap.width / 4
+      @ch = @charbitmap.height / 4
+      self.ox = @cw / 2
+    else
+      self.bitmap = nil
+      @cw = 0
+      @ch = 0
+    end
+    @character.sprite_size = [@cw, @ch]
   end
 
   def update
     return if @character.is_a?(Game_Event) && !@character.should_update?
     super
-    if @tile_id != @character.tile_id ||
-       @character_name != @character.character_name ||
-       @character_hue != @character.character_hue ||
-       @oldbushdepth != @character.bush_depth
-      @tile_id        = @character.tile_id
-      @character_name = @character.character_name
-      @character_hue  = @character.character_hue
-      @oldbushdepth   = @character.bush_depth
-      if @tile_id >= 384
-        @charbitmap.dispose if @charbitmap
-        @charbitmap = pbGetTileBitmap(@character.map.tileset_name, @tile_id,
-                                      @character_hue, @character.width, @character.height)
-        @charbitmapAnimated = false
-        @bushbitmap.dispose if @bushbitmap
-        @bushbitmap = nil
-        @spriteoffset = false
-        @cw = Game_Map::TILE_WIDTH * @character.width
-        @ch = Game_Map::TILE_HEIGHT * @character.height
-        self.src_rect.set(0, 0, @cw, @ch)
-        self.ox = @cw / 2
-        self.oy = @ch
-        @character.sprite_size = [@cw, @ch]
-      else
-        @charbitmap.dispose if @charbitmap
-        @charbitmap = AnimatedBitmap.new(
-           'Graphics/Characters/' + @character_name, @character_hue)
-        RPG::Cache.retain('Graphics/Characters/', @character_name, @character_hue) if @character == $game_player
-        @charbitmapAnimated = true
-        @bushbitmap.dispose if @bushbitmap
-        @bushbitmap = nil
-        @spriteoffset = @character_name[/offset/i]
-        @cw = @charbitmap.width / 4
-        @ch = @charbitmap.height / 4
-        self.ox = @cw / 2
-        @character.sprite_size = [@cw, @ch]
-      end
-    end
+    refresh_graphic
+    return if !@charbitmap
     @charbitmap.update if @charbitmapAnimated
     bushdepth = @character.bush_depth
     if bushdepth == 0
@@ -154,17 +167,21 @@ class Sprite_Character < RPG::Sprite
         pbDayNightTint(self)
       end
     end
-    self.x          = @character.screen_x
-    self.y          = @character.screen_y
-    self.z          = @character.screen_z(@ch)
-    self.opacity    = @character.opacity
+    this_x = @character.screen_x
+    this_x = ((this_x - (Graphics.width / 2)) * TilemapRenderer::ZOOM_X) + (Graphics.width / 2) if TilemapRenderer::ZOOM_X != 1
+    self.x = this_x
+    this_y = @character.screen_y
+    this_y = ((this_y - (Graphics.height / 2)) * TilemapRenderer::ZOOM_Y) + (Graphics.height / 2) if TilemapRenderer::ZOOM_Y != 1
+    self.y = this_y
+    self.z = @character.screen_z(@ch)
+    self.opacity = @character.opacity
     self.blend_type = @character.blend_type
     if @character.animation_id != 0
       animation = $data_animations[@character.animation_id]
       animation(animation, true)
       @character.animation_id = 0
     end
-    @reflection.update if @reflection
-    @surfbase.update if @surfbase
+    @reflection&.update
+    @surfbase&.update
   end
 end

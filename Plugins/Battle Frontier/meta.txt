@@ -1,0 +1,4 @@
+Name      = v19.1 Battle Frontier
+Version   = 1.0
+Essentials = 19.1,21.1
+Credits   = Zeak6464

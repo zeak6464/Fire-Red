@@ -20,6 +20,7 @@ module SaveData
       @id = id
       @loaded = false
       @load_in_bootup = false
+      @reset_on_new_game = false
       instance_eval(&block)
       raise "No save_value defined for save value #{id.inspect}" if @save_proc.nil?
       raise "No load_value defined for save value #{id.inspect}" if @load_proc.nil?
@@ -70,9 +71,22 @@ module SaveData
       return @load_in_bootup
     end
 
+    def reset_on_new_game
+      @reset_on_new_game = true
+    end
+
+    def reset_on_new_game?
+      return @reset_on_new_game
+    end
+
     # @return [Boolean] whether the value has been loaded
     def loaded?
       return @loaded
+    end
+
+    # Marks value as unloaded.
+    def mark_as_unloaded
+      @loaded = false
     end
 
     # Uses the {#from_old_format} proc to select the correct data from
@@ -84,6 +98,8 @@ module SaveData
       return nil if @old_format_get_proc.nil?
       return @old_format_get_proc.call(old_format)
     end
+
+    #---------------------------------------------------------------------------
 
     private
 
@@ -109,21 +125,21 @@ module SaveData
     # Requires a block with the loaded value as its parameter.
     # @see SaveData.register
     def load_value(&block)
-      raise ArgumentError, 'No block given to load_value' unless block_given?
+      raise ArgumentError, "No block given to load_value" unless block_given?
       @load_proc = block
     end
 
     # Defines what is saved into save data. Requires a block.
     # @see SaveData.register
     def save_value(&block)
-      raise ArgumentError, 'No block given to save_value' unless block_given?
+      raise ArgumentError, "No block given to save_value" unless block_given?
       @save_proc = block
     end
 
     # If present, defines what the value is set to at the start of a new game.
     # @see SaveData.register
     def new_game_value(&block)
-      raise ArgumentError, 'No block given to new_game_value' unless block_given?
+      raise ArgumentError, "No block given to new_game_value" unless block_given?
       @new_game_value_proc = block
     end
 
@@ -137,7 +153,7 @@ module SaveData
     # save format. Requires a block with the old format array as its parameter.
     # @see SaveData.register
     def from_old_format(&block)
-      raise ArgumentError, 'No block given to from_old_format' unless block_given?
+      raise ArgumentError, "No block given to from_old_format" unless block_given?
       @old_format_get_proc = block
     end
 
@@ -166,7 +182,6 @@ module SaveData
   #     save_value { $foo }
   #     load_value { |value| $foo = value }
   #     new_game_value { Foo.new }
-  #     from_old_format { |old_format| old_format[16] if old_format[16].is_a?(Foo) }
   #   end
   # @example Registering a value to be loaded on bootup
   #   SaveData.register(:bar) do
@@ -176,13 +191,18 @@ module SaveData
   #     new_game_value { Bar.new }
   #   end
   # @param id [Symbol] value id
-  # @yieldself [Value]
+  # @yield the block of code to be saved as a Value
   def self.register(id, &block)
     validate id => Symbol
     unless block_given?
-      raise ArgumentError, 'No block given to SaveData.register'
+      raise ArgumentError, "No block given to SaveData.register"
     end
     @values << Value.new(id, &block)
+  end
+
+  def self.unregister(id)
+    validate id => Symbol
+    @values.delete_if { |value| value.id == id }
   end
 
   # @param save_data [Hash] save data to validate
@@ -221,6 +241,13 @@ module SaveData
     load_values(save_data) { |value| !value.loaded? }
   end
 
+  # Marks all values that aren't loaded on bootup as unloaded.
+  def self.mark_values_as_unloaded
+    @values.each do |value|
+      value.mark_as_unloaded if !value.load_in_bootup? || value.reset_on_new_game?
+    end
+  end
+
   # Loads each value from the given save data that has
   # been set to be loaded during bootup. Done when a save file exists.
   # @param save_data [Hash] save data to load
@@ -243,7 +270,7 @@ module SaveData
   # new game.
   def self.load_new_game_values
     @values.each do |value|
-      value.load_new_game_value if value.has_new_game_proc? && !value.loaded?
+      value.load_new_game_value if value.has_new_game_proc? && (!value.loaded? || value.reset_on_new_game?)
     end
   end
 

@@ -4,10 +4,10 @@
 class BattleChallenge
   attr_reader :currentChallenge
 
-  BattleTowerID   = 0
-  BattlePalaceID  = 1
-  BattleArenaID   = 2
-  BattleFactoryID = 3
+  BATTLE_TOWER_ID   = 0
+  BATTLE_PALACE_ID  = 1
+  BATTLE_ARENA_ID   = 2
+  BATTLE_FACTORY_ID = 3
 
   def initialize
     @bc = BattleChallengeData.new
@@ -20,17 +20,17 @@ class BattleChallenge
     @numRounds = numrounds
     @rules = rules
     register(id, id[/double/], 3,
-       id[/^factory/] ? BattleFactoryID : BattleTowerID,
-       id[/open$/] ? 1 : 0)
+             id[/^factory/] ? BATTLE_FACTORY_ID : BATTLE_TOWER_ID,
+             id[/open$/] ? 1 : 0)
     pbWriteCup(id, rules)
   end
 
   def register(id, doublebattle, numPokemon, battletype, mode = 1)
     ensureType(id)
-    if battletype == BattleFactoryID
+    if battletype == BATTLE_FACTORY_ID
       @bc.setExtraData(BattleFactoryData.new(@bc))
       numPokemon = 3
-      battletype = BattleTowerID
+      battletype = BATTLE_TOWER_ID
     end
     @rules = modeToRules(doublebattle, numPokemon, battletype, mode) if !@rules
   end
@@ -47,9 +47,9 @@ class BattleChallenge
     rules = PokemonChallengeRules.new
     # Set the battle type
     case battletype
-    when BattlePalaceID
+    when BATTLE_PALACE_ID
       rules.setBattleType(BattlePalace.new)
-    when BattleArenaID
+    when BATTLE_ARENA_ID
       rules.setBattleType(BattleArena.new)
       doublebattle = false
     else   # Factory works the same as Tower
@@ -82,8 +82,7 @@ class BattleChallenge
     @bc.pbStart(t, @numRounds)
   end
 
-  def pbStart(challenge)
-  end
+  def pbStart(challenge); end
 
   def pbEnd
     if @currentChallenge != -1
@@ -94,14 +93,39 @@ class BattleChallenge
   end
 
   def pbBattle
-    return @bc.extraData.pbBattle(self) if @bc.extraData   # Battle Factory
-    opponent = pbGenerateBattleTrainer(self.nextTrainer, self.rules)
-    bttrainers = pbGetBTTrainers(@id)
-    trainerdata = bttrainers[self.nextTrainer]
-    ret = pbOrganizedBattleEx(opponent,self.rules,
-       pbGetMessageFromHash(MessageTypes::EndSpeechLose, trainerdata[4]),
-       pbGetMessageFromHash(MessageTypes::EndSpeechWin, trainerdata[3]))
-    return ret
+    if pbIsBrainBattle?
+      brain = pbGetBrain
+      if brain
+        pbMessage(_INTL("Frontier Brain {1} wants to battle!", brain.name))
+        # Create special battle with Frontier Brain
+        trainer = PokeBattle_Trainer.new(brain.name, brain.facility)
+        trainer.party = brain.team.map { |species| Pokemon.new(species, 50) }
+        battle = pbCreateBattle(scene, trainer)
+        if battle.pbStartBattle
+          if battle.pbAllFainted?(trainer.party)
+            pbAwardPoints(50)  # Award more points for beating a Frontier Brain
+            pbAwardSymbol(brain.facility, :silver) if @currentChallenge < 50
+            pbAwardSymbol(brain.facility, :gold) if @currentChallenge >= 50
+            pbMessage(_INTL("Congratulations! You've defeated {1}!", brain.name))
+            return true
+          end
+        end
+        return false
+      end
+    end
+    
+    # Regular battle logic
+    trainer = pbGenerateTrainer
+    battle = pbCreateBattle(scene, trainer)
+    if battle.pbStartBattle
+      if battle.pbAllFainted?(trainer.party)
+        # Award points based on battle number
+        points = (@currentChallenge / 7) + 1
+        pbAwardPoints(points)
+        return true
+      end
+    end
+    return false
   end
 
   def pbInChallenge?
@@ -166,6 +190,8 @@ class BattleChallenge
     return ensureType(challenge).maxSwaps
   end
 
+  #-----------------------------------------------------------------------------
+
   private
 
   def ensureType(id)
@@ -197,12 +223,8 @@ class BattleChallengeData
   end
 
   def setParty(value)
-    if @inProgress
-      $Trainer.party = value
-      @party = value
-    else
-      @party = value
-    end
+    $player.party = value if @inProgress
+    @party = value
   end
 
   def pbStart(t, numRounds)
@@ -220,14 +242,14 @@ class BattleChallengeData
     while @trainers.length < @numRounds
       newtrainer = pbBattleChallengeTrainer(@wins + @trainers.length, btTrainers)
       found = false
-      for tr in @trainers
+      @trainers.each do |tr|
         found = true if tr == newtrainer
       end
       @trainers.push(newtrainer) if !found
     end
     @start = [$game_map.map_id, $game_player.x, $game_player.y]
-    @oldParty = $Trainer.party
-    $Trainer.party = @party if @party
+    @oldParty = $player.party
+    $player.party = @party if @party
     Game.save(safe: true)
   end
 
@@ -238,6 +260,7 @@ class BattleChallengeData
       $game_temp.player_new_x         = @start[1]
       $game_temp.player_new_y         = @start[2]
       $game_temp.player_new_direction = 8
+      pbDismountBike
       $scene.transfer_player
     end
   end
@@ -270,12 +293,12 @@ class BattleChallengeData
   end
 
   def pbCancel
-    $Trainer.party = @oldParty if @oldParty
+    $player.party = @oldParty if @oldParty
     reset
   end
 
   def pbEnd
-    $Trainer.party = @oldParty
+    $player.party = @oldParty
     return if !@inProgress
     save = (@decision != 0)
     reset
@@ -286,6 +309,8 @@ class BattleChallengeData
   def nextTrainer
     return @trainers[@battleNumber - 1]
   end
+
+  #-----------------------------------------------------------------------------
 
   private
 
@@ -376,20 +401,23 @@ class BattleFactoryData
     bttrainers = pbGetBTTrainers(pbBattleChallenge.currentChallenge)
     trainerdata = bttrainers[@trainerid]
     @opponent = NPCTrainer.new(
-       pbGetMessageFromHash(MessageTypes::TrainerNames, trainerdata[1]),
-       trainerdata[0])
+      pbGetMessageFromHash(MessageTypes::TRAINER_NAMES, trainerdata[1]),
+      trainerdata[0]
+    )
+    @opponent.lose_text = pbGetMessageFromHash(MessageTypes::FRONTIER_END_SPEECHES_LOSE, trainerdata[4])
+    @opponent.win_text = pbGetMessageFromHash(MessageTypes::FRONTIER_END_SPEECHES_WIN, trainerdata[3])
     opponentPkmn = pbBattleFactoryPokemon(pbBattleChallenge.rules, @bcdata.wins, @bcdata.swaps, @rentals)
-    @opponent.party = opponentPkmn.shuffle[0, 3]
+    @opponent.party = opponentPkmn.sample(3)
   end
 
   def pbChooseRentals
-    pbFadeOutIn {
+    pbFadeOutIn do
       scene = BattleSwapScene.new
       screen = BattleSwapScreen.new(scene)
       @rentals = screen.pbStartRent(@rentals)
       @bcdata.pbAddSwap
       @bcdata.setParty(@rentals)
-    }
+    end
   end
 
   def pbPrepareSwaps
@@ -398,30 +426,70 @@ class BattleFactoryData
     bttrainers = pbGetBTTrainers(pbBattleChallenge.currentChallenge)
     trainerdata = bttrainers[trainerid]
     @opponent = NPCTrainer.new(
-       pbGetMessageFromHash(MessageTypes::TrainerNames, trainerdata[1]),
-       trainerdata[0])
+      pbGetMessageFromHash(MessageTypes::TRAINER_NAMES, trainerdata[1]),
+      trainerdata[0]
+    )
+    @opponent.lose_text = pbGetMessageFromHash(MessageTypes::FRONTIER_END_SPEECHES_LOSE, trainerdata[4])
+    @opponent.win_text = pbGetMessageFromHash(MessageTypes::FRONTIER_END_SPEECHES_WIN, trainerdata[3])
     opponentPkmn = pbBattleFactoryPokemon(pbBattleChallenge.rules, @bcdata.wins, @bcdata.swaps,
-       [].concat(@rentals).concat(@oldopponent))
-    @opponent.party = opponentPkmn.shuffle[0, 3]
+                                          [].concat(@rentals).concat(@oldopponent))
+    @opponent.party = opponentPkmn.sample(3)
   end
 
   def pbChooseSwaps
     swapMade = true
-    pbFadeOutIn {
+    pbFadeOutIn do
       scene = BattleSwapScene.new
       screen = BattleSwapScreen.new(scene)
       swapMade = screen.pbStartSwap(@rentals, @oldopponent)
       @bcdata.pbAddSwap if swapMade
       @bcdata.setParty(@rentals)
-    }
+    end
     return swapMade
   end
 
   def pbBattle(challenge)
-    bttrainers = pbGetBTTrainers(pbBattleChallenge.currentChallenge)
-    trainerdata = bttrainers[@trainerid]
-    return pbOrganizedBattleEx(@opponent, challenge.rules,
-       pbGetMessageFromHash(MessageTypes::EndSpeechLose, trainerdata[4]),
-       pbGetMessageFromHash(MessageTypes::EndSpeechWin, trainerdata[3]))
+    return pbOrganizedBattleEx(@opponent, challenge.rules)
+  end
+end
+
+#===============================================================================
+# Battle Challenge Integration
+#===============================================================================
+class BattleChallenge
+  def pbBattle
+    if pbIsBrainBattle?
+      brain = pbGetBrain
+      if brain
+        pbMessage(_INTL("Frontier Brain {1} wants to battle!", brain.name))
+        # Create special battle with Frontier Brain
+        trainer = PokeBattle_Trainer.new(brain.name, brain.facility)
+        trainer.party = brain.team.map { |species| Pokemon.new(species, 50) }
+        battle = pbCreateBattle(scene, trainer)
+        if battle.pbStartBattle
+          if battle.pbAllFainted?(trainer.party)
+            pbAwardPoints(50)  # Award more points for beating a Frontier Brain
+            pbAwardSymbol(brain.facility, :silver) if @currentChallenge < 50
+            pbAwardSymbol(brain.facility, :gold) if @currentChallenge >= 50
+            pbMessage(_INTL("Congratulations! You've defeated {1}!", brain.name))
+            return true
+          end
+        end
+        return false
+      end
+    end
+    
+    # Regular battle logic
+    trainer = pbGenerateTrainer
+    battle = pbCreateBattle(scene, trainer)
+    if battle.pbStartBattle
+      if battle.pbAllFainted?(trainer.party)
+        # Award points based on battle number
+        points = (@currentChallenge / 7) + 1
+        pbAwardPoints(points)
+        return true
+      end
+    end
+    return false
   end
 end

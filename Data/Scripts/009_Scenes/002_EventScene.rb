@@ -1,4 +1,7 @@
-class PictureSprite < SpriteWrapper
+#===============================================================================
+#
+#===============================================================================
+class PictureSprite < Sprite
   def initialize(viewport, picture)
     super(viewport)
     @picture = picture
@@ -10,7 +13,7 @@ class PictureSprite < SpriteWrapper
   end
 
   def dispose
-    @pictureBitmap.dispose if @pictureBitmap
+    @pictureBitmap&.dispose
     super
   end
 
@@ -22,23 +25,23 @@ class PictureSprite < SpriteWrapper
 
   def update
     super
-    @pictureBitmap.update if @pictureBitmap
+    @pictureBitmap&.update
     # If picture file name is different from current one
-    if @customBitmap && @picture.name==""
+    if @customBitmap && @picture.name == ""
       self.bitmap = (@customBitmapIsBitmap) ? @customBitmap : @customBitmap.bitmap
-    elsif @picture_name != @picture.name ||  @picture.hue.to_i != @hue.to_i
+    elsif @picture_name != @picture.name || @picture.hue.to_i != @hue.to_i
       # Remember file name to instance variables
       @picture_name = @picture.name
       @hue = @picture.hue.to_i
       # If file name is not empty
       if @picture_name == ""
-        @pictureBitmap.dispose if @pictureBitmap
+        @pictureBitmap&.dispose
         @pictureBitmap = nil
         self.visible = false
         return
       end
       # Get picture graphic
-      @pictureBitmap.dispose if @pictureBitmap
+      @pictureBitmap&.dispose
       @pictureBitmap = AnimatedBitmap.new(@picture_name, @hue)
       self.bitmap = (@pictureBitmap) ? @pictureBitmap.bitmap : nil
     elsif @picture_name == ""
@@ -46,28 +49,24 @@ class PictureSprite < SpriteWrapper
       self.visible = false
       return
     end
-    setPictureSprite(self,@picture)
+    setPictureSprite(self, @picture)
   end
 end
 
-
-
-def pbTextBitmap(text, maxwidth=Graphics.width)
-  tmp = Bitmap.new(maxwidth,Graphics.height)
+def pbTextBitmap(text, maxwidth = Graphics.width)
+  tmp = Bitmap.new(maxwidth, Graphics.height)
   pbSetSystemFont(tmp)
-  drawFormattedTextEx(tmp,0,0,maxwidth,text,Color.new(248,248,248),Color.new(168,184,184))
+  drawFormattedTextEx(tmp, 0, 4, maxwidth, text, Color.new(248, 248, 248), Color.new(168, 184, 184))
   return tmp
 end
 
-
-
 #===============================================================================
-# EventScene
+#
 #===============================================================================
 class EventScene
-  attr_accessor :onCTrigger,:onBTrigger,:onUpdate
+  attr_accessor :onCTrigger, :onBTrigger, :onUpdate
 
-  def initialize(viewport=nil)
+  def initialize(viewport = nil)
     @viewport       = viewport
     @onCTrigger     = Event.new
     @onBTrigger     = Event.new
@@ -80,12 +79,8 @@ class EventScene
 
   def dispose
     return if disposed?
-    for sprite in @picturesprites
-      sprite.dispose
-    end
-    for sprite in @usersprites
-      sprite.dispose
-    end
+    @picturesprites.each { |sprite| sprite.dispose }
+    @usersprites.each { |sprite| sprite.dispose }
     @onCTrigger.clear
     @onBTrigger.clear
     @onUpdate.clear
@@ -105,26 +100,26 @@ class EventScene
     # EventScene doesn't take ownership of the passed-in bitmap
     num = @pictures.length
     picture = PictureEx.new(num)
-    picture.setXY(0,x,y)
-    picture.setVisible(0,true)
+    picture.setXY(0, x, y)
+    picture.setVisible(0, true)
     @pictures[num] = picture
-    @picturesprites[num] = PictureSprite.new(@viewport,picture)
+    @picturesprites[num] = PictureSprite.new(@viewport, picture)
     @picturesprites[num].setCustomBitmap(bitmap)
     return picture
   end
 
   def addLabel(x, y, width, text)
-    addBitmap(x,y,pbTextBitmap(text,width))
+    addBitmap(x, y, pbTextBitmap(text, width))
   end
 
   def addImage(x, y, name)
     num = @pictures.length
     picture = PictureEx.new(num)
     picture.name = name
-    picture.setXY(0,x,y)
-    picture.setVisible(0,true)
+    picture.setXY(0, x, y)
+    picture.setVisible(0, true)
     @pictures[num] = picture
-    @picturesprites[num] = PictureSprite.new(@viewport,picture)
+    @picturesprites[num] = PictureSprite.new(@viewport, picture)
     return picture
   end
 
@@ -136,33 +131,34 @@ class EventScene
     return @pictures[num]
   end
 
-  def wait(frames)
-    frames.times { update }
+  # ticks is in 1/20ths of a second.
+  def wait(ticks)
+    return if ticks <= 0
+    timer_start = System.uptime
+    loop do
+      update
+      break if System.uptime - timer_start >= ticks / 20.0
+    end
   end
 
-  def pictureWait(extraframes=0)
+  # extra_ticks is in 1/20ths of a second.
+  def pictureWait(extra_ticks = 0)
     loop do
       hasRunning = false
-      for pic in @pictures
-        hasRunning = true if pic.running?
-      end
+      @pictures.each { |pic| hasRunning = true if pic.running? }
       break if !hasRunning
       update
     end
-    extraframes.times { update }
+    wait(extra_ticks)
   end
 
   def update
     return if disposed?
     Graphics.update
     Input.update
-    for picture in @pictures
-      picture.update
-    end
-    for sprite in @picturesprites
-      sprite.update
-    end
-    for sprite in @usersprites
+    @pictures.each { |picture| picture.update }
+    @picturesprites.each { |sprite| sprite.update }
+    @usersprites.each do |sprite|
       next if !sprite || sprite.disposed? || !sprite.is_a?(Sprite)
       sprite.update
     end
@@ -175,24 +171,21 @@ class EventScene
   end
 
   def main
-    while !disposed?
+    loop do
       update
+      break if disposed?
     end
   end
 end
-
-
 
 #===============================================================================
 #
 #===============================================================================
 def pbEventScreen(cls)
-  pbFadeOutIn {
-    viewport = Viewport.new(0,0,Graphics.width,Graphics.height)
+  pbFadeOutIn do
+    viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
     viewport.z = 99999
-    PBDebug.logonerr {
-      cls.new(viewport).main
-    }
+    PBDebug.logonerr { cls.new(viewport).main }
     viewport.dispose
-  }
+  end
 end

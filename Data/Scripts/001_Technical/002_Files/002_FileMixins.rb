@@ -67,7 +67,7 @@ module FileInputMixin
     self.pos = 0
     offset = fgetdw >> 3
     return 0 if index >= offset
-    self.pos = index * 8 + 4
+    self.pos = (index * 8) + 4
     return fgetdw
   end
 
@@ -109,22 +109,21 @@ module FileOutputMixin
 end
 
 class File < IO
-=begin
-  unless defined?(debugopen)
-    class << self
-      alias debugopen open
-    end
-  end
+#   unless defined?(debugopen)
+#     class << self
+#       alias debugopen open
+#     end
+#   end
 
-  def open(f, m = "r")
-    debugopen("debug.txt", "ab") { |file| file.write([f, m, Time.now.to_f].inspect + "\r\n") }
-    if block_given?
-      debugopen(f, m) { |file| yield file }
-    else
-      return debugopen(f, m)
-    end
-  end
-=end
+#   def open(f, m = "r")
+#     debugopen("debug.txt", "ab") { |file| file.write([f, m, Time.now.to_f].inspect + "\r\n") }
+#     if block_given?
+#       debugopen(f, m) { |file| yield file }
+#     else
+#       return debugopen(f, m)
+#     end
+#   end
+
   include FileInputMixin
   include FileOutputMixin
 end
@@ -137,7 +136,7 @@ class StringInput
   end
 
   def each_byte
-    while !eof?
+    until eof?
       yield getc
     end
   end

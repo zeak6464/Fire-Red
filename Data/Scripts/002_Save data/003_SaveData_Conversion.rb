@@ -15,7 +15,7 @@ module SaveData
   # Populated during runtime by SaveData.register_conversion calls.
   @conversions = {
     essentials: {},
-    game: {}
+    game:       {}
   }
 
   #=============================================================================
@@ -71,6 +71,8 @@ module SaveData
       @value_procs[key].call(object) if @value_procs[key].is_a?(Proc)
     end
 
+    #---------------------------------------------------------------------------
+
     private
 
     # @!group Configuration
@@ -112,7 +114,7 @@ module SaveData
     # @see SaveData.register_conversion
     def to_value(value_id, &block)
       validate value_id => Symbol
-      raise ArgumentError, 'No block given to to_value' unless block_given?
+      raise ArgumentError, "No block given to to_value" unless block_given?
       if @value_procs[value_id].is_a?(Proc)
         raise "Multiple to_value definitions in conversion #{@id} for #{value_id}"
       end
@@ -122,7 +124,7 @@ module SaveData
     # Defines a conversion to the entire save data.
     # @see SaveData.register_conversion
     def to_all(&block)
-      raise ArgumentError, 'No block given to to_all' unless block_given?
+      raise ArgumentError, "No block given to to_all" unless block_given?
       if @all_proc.is_a?(Proc)
         raise "Multiple to_all definitions in conversion #{@id}"
       end
@@ -152,11 +154,11 @@ module SaveData
   #       save_data[:new_value] = Foo.new
   #     end
   #   end
-  # @yield self [Conversion]
+  # @yield the block of code to be saved as a Conversion
   def self.register_conversion(id, &block)
     validate id => Symbol
     unless block_given?
-      raise ArgumentError, 'No block given to SaveData.register_conversion'
+      raise ArgumentError, "No block given to SaveData.register_conversion"
     end
     conversion = Conversion.new(id, &block)
     @conversions[conversion.trigger_type][conversion.version] ||= []
@@ -168,8 +170,8 @@ module SaveData
   def self.get_conversions(save_data)
     conversions_to_run = []
     versions = {
-      essentials: save_data[:essentials_version] || '18.1',
-      game: save_data[:game_version] || '0.0.0'
+      essentials: save_data[:essentials_version] || "18.1",
+      game:       save_data[:game_version] || "0.0.0"
     }
     [:essentials, :game].each do |trigger_type|
       # Ensure the versions are sorted from lowest to highest
@@ -194,14 +196,14 @@ module SaveData
     validate save_data => Hash
     conversions_to_run = self.get_conversions(save_data)
     return false if conversions_to_run.none?
-    File.open(SaveData::FILE_PATH + '.bak', 'wb') { |f| Marshal.dump(save_data, f) }
-    echoln "Running #{conversions_to_run.length} conversions..."
+    File.open(SaveData::FILE_PATH + ".bak", "wb") { |f| Marshal.dump(save_data, f) }
+    Console.echo_h1(_INTL("Converting save file"))
     conversions_to_run.each do |conversion|
-      echo "#{conversion.title}..."
+      Console.echo_li("#{conversion.title}...")
       conversion.run(save_data)
-      echoln ' done.'
+      Console.echo_done(true)
     end
-    echoln '' if conversions_to_run.length > 0
+    Console.echoln_li_done(_INTL("Successfully applied {1} save file conversion(s)", conversions_to_run.length))
     save_data[:essentials_version] = Essentials::VERSION
     save_data[:game_version] = Settings::GAME_VERSION
     return true
